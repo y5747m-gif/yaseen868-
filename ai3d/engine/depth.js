@@ -152,6 +152,51 @@
   }
   function edgeW(a, b) { const d = a - b; return Math.exp(-(d * d) * 42); }
 
+  /* طبقة التفاصيل الدقيقة:
+   *  - نفصل التردد العالي من الإضاءة (lum - blur) على مقياسين صغيرين.
+   *  - نحوّل تدرّج التظليل إلى ارتفاع محلي باستخدام اتجاه الإضاءة
+   *    (تكامل بسيط في اتجاه الضوء: السطح المضاء مرتفع، الظل المجاور منخفض).
+   *  - نلغي أثر تغيّر الخامة (albedo edges) حتى لا تتحوّل الطباعة/الشعارات إلى نتوءات.
+   *  الناتج في المدى [-1, 1] تقريبًا. */
+  function buildDetailLayer(lum, intr, light, mask, w, h) {
+    const r1 = Math.max(1, Math.round(Math.min(w, h) / 220));
+    const r2 = Math.max(2, Math.round(Math.min(w, h) / 90));
+    const b1 = F.boxBlur(Float32Array.from(lum), w, h, r1, 1);
+    const b2 = F.boxBlur(Float32Array.from(lum), w, h, r2, 2);
+    const hf = new Float32Array(w * h);
+    for (let i = 0; i < hf.length; i++) hf[i] = (lum[i] - b1[i]) * 0.6 + (b1[i] - b2[i]) * 0.4;
+    // إخماد حواف الخامة: حيث يتغيّر الـalbedo بقوة، نقلّل الثقة بأن التغيّر هندسي
+    const { gx: agx, gy: agy } = F.gradientXY(intr.albedo, w, h);
+    const lx = light.dir[0], ly = -light.dir[1];
+    const ll = Math.hypot(lx, ly) || 1;
+    const dx = lx / ll, dy = ly / ll;
+    // تكامل موجّه: ارتفاع ≈ مجموع التظليل على طول اتجاه الضوء (نافذة قصيرة)
+    const out = new Float32Array(w * h);
+    const span = Math.max(2, r2);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if (mask[i] < 0.3) continue;
+        let acc = 0;
+        for (let s = -span; s <= span; s++) {
+          const sx = Math.round(x + dx * s), sy = Math.round(y + dy * s);
+          if (sx < 0 || sy < 0 || sx >= w || sy >= h) continue;
+          const j = sy * w + sx;
+          const albEdge = clamp01(1 - Math.hypot(agx[j], agy[j]) * 6);
+          acc += hf[j] * (s <= 0 ? 1 : -1) * albEdge;
+        }
+        out[i] = acc / (span + 1);
+      }
+    }
+    // تطبيع قوي (95th percentile) ثم قصّ
+    let mx = 1e-6;
+    const abs = [];
+    for (let i = 0; i < out.length; i += 7) if (mask[i] > 0.3) abs.push(Math.abs(out[i]));
+    if (abs.length) { abs.sort((a, b) => a - b); mx = Math.max(1e-6, abs[Math.floor(abs.length * 0.95)]); }
+    for (let i = 0; i < out.length; i++) out[i] = clamp(out[i] / mx, -1, 1);
+    return out;
+  }
+
   /* ---------- التقدير الرئيسي ---------- */
   function estimateDepth(img, w, h, mask, ctx, opts) {
     opts = opts || {}; ctx = ctx || {};
@@ -207,11 +252,24 @@
 
     /* 4) تنعيم عالمي يحافظ على الحواف (موجّه بالألbedo) */
     const guide = F.boxBlur(Float32Array.from(intr.albedo), w, h, 1, 1);
-    let z = edgeAwareSmooth(prior, guide, w, h, quality === 'fast' ? 6 : 14, 0.75);
+    const smoothIters = quality === 'fast' ? 6 : (quality === 'detailed' ? 9 : 14);
+    let z = edgeAwareSmooth(prior, guide, w, h, smoothIters, 0.75);
 
     /* 5) صقل SfS النهائي عند دقة العمل */
     z = shapeFromShading(intr.shading, intr.albedo, light, mask, w, h, Math.round(sfsIters / 3), z);
-    z = edgeAwareSmooth(z, guide, w, h, 6, 0.9);
+    z = edgeAwareSmooth(z, guide, w, h, quality === 'detailed' ? 3 : 6, 0.9);
+
+    /* 5b) طبقة التفاصيل الدقيقة (High-frequency detail layer)
+     *  التنعيم السابق يحمي الشكل العام لكنه يمحو التفاصيل الصغيرة
+     *  (حزوز، نقوش، حواف صغيرة). نستعيدها من التردد العالي للتظليل
+     *  مع مراعاة اتجاه الإضاءة، ونضيفها بمقدار محدود وموزون بالثقة. */
+    const detailAmt = quality === 'fast' ? 0 : (quality === 'detailed' ? 1.0 : 0.55);
+    let detailField = null;
+    if (detailAmt > 0) {
+      detailField = buildDetailLayer(lum, intr, light, mask, w, h);
+      const k = detailAmt * 0.08;
+      for (let i = 0; i < z.length; i++) if (mask[i] > 0.3) z[i] += detailField[i] * k;
+    }
 
     /* 6) فرض التماثل (للأجسام المتناظرة) */
     const sym = (ctx.analysis && ctx.analysis.symmetry) || 0.5;
@@ -259,9 +317,9 @@
     return {
       depth, confidence: conf, normals, w, h,
       cues: { sfs: cSfs, bulge: cBulge, sharpness: cSharp, texture: cTex, ground: cGround, haze: cHaze },
-      albedo: intr.albedo, shading: intr.shading,
+      albedo: intr.albedo, shading: intr.shading, detail: detailField,
       geometry: geometryInfo,
-      method: 'multi-cue + linear SfS + edge-aware fusion (local)',
+      method: 'multi-cue + linear SfS + edge-aware fusion + HF detail layer (local)',
       ms: Math.round(U.now() - t0)
     };
   }
@@ -430,6 +488,6 @@
 
   AI3D.Depth = {
     estimateDepth, fuseDepths, normalsFromDepth, intrinsicDecompose,
-    shapeFromShading, edgeAwareSmooth, analyzeDepthGeometry
+    shapeFromShading, edgeAwareSmooth, analyzeDepthGeometry, buildDetailLayer
   };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -177,8 +177,34 @@
     const cavity = opts.cavity || null;
     const cavityW = opts.cavityW || sw, cavityH = opts.cavityH || sh;
 
+    const symHint = opts.symHint || null;
+    let symFaces = 0;
     const mat = opts.material || { roughness: 0.6, metallic: 0.1 };
     const baseRough = mat.roughness, baseMetal = mat.metallic;
+
+    /* خريطة تفاصيل دقيقة من الصورة (لخريطة النواميس):
+     * ارتفاع = تردد عالٍ للإضاءة (بعد إزالة أثر لون الخامة)، ثم تدرّجه يُضاف
+     * إلى ناموس الوجه في فضاء المماس. هذا ما يجعل النقوش والحزوز والمسام
+     * تظهر في الإضاءة حتى حيث لا تكفي دقة الشبكة. */
+    const detailStrength = opts.detailStrength == null ? 0.6 : opts.detailStrength;
+    let hgx = null, hgy = null;
+    if (detailStrength > 0) {
+      const dl = Math.max(1, Math.round(Math.min(sw, sh) / 900));
+      const lumF = new Float32Array(sw * sh);
+      for (let i = 0; i < sw * sh; i++) lumF[i] = (0.2126 * src[i * 4] + 0.7152 * src[i * 4 + 1] + 0.0722 * src[i * 4 + 2]) / 255;
+      const lowF = F.boxBlur(Float32Array.from(lumF), sw, sh, dl * 3, 2);
+      const hfF = new Float32Array(sw * sh);
+      for (let i = 0; i < hfF.length; i++) hfF[i] = lumF[i] - lowF[i];
+      const g = F.gradientXY(hfF, sw, sh);
+      hgx = g.gx; hgy = g.gy;
+    }
+    const obsDetail = (iu, iv) => {
+      if (!hgx) return null;
+      const sx = clamp(Math.round(iu * (sw - 1)), 0, sw - 1);
+      const sy = clamp(Math.round(iv * (sh - 1)), 0, sh - 1);
+      const j = sy * sw + sx;
+      return [hgx[j], hgy[j]];
+    };
 
     for (let t = 0; t < I.length; t += 3) {
       const a = I[t], b = I[t + 1], c = I[t + 2];
@@ -208,14 +234,24 @@
       const d = (u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0);
       if (Math.abs(d) < 1e-9) continue;
       const invD = 1 / d;
-      const iu0 = IMGUV[a * 2], iv0 = IMGUV[a * 2 + 1];
-      const iu1 = IMGUV[b * 2], iv1 = IMGUV[b * 2 + 1];
-      const iu2 = IMGUV[c * 2], iv2 = IMGUV[c * 2 + 1];
-      const obs0 = OBS[a], obs1 = OBS[b], obs2 = OBS[c];
+      let iu0 = IMGUV[a * 2], iv0 = IMGUV[a * 2 + 1];
+      let iu1 = IMGUV[b * 2], iv1 = IMGUV[b * 2 + 1];
+      let iu2 = IMGUV[c * 2], iv2 = IMGUV[c * 2 + 1];
+      let obs0 = OBS[a], obs1 = OBS[b], obs2 = OBS[c];
+      // تعويض تماثلي (Neural): وجه مستنتَج بالكامل له تلميحات مرآوية ⇒ نستعير اللون من الجهة المرصودة
+      let symFace = false;
+      if (symHint && obs0 < 0.5 && obs1 < 0.5 && obs2 < 0.5 &&
+          symHint[a * 2] >= 0 && symHint[b * 2] >= 0 && symHint[c * 2] >= 0) {
+        iu0 = symHint[a * 2]; iv0 = symHint[a * 2 + 1];
+        iu1 = symHint[b * 2]; iv1 = symHint[b * 2 + 1];
+        iu2 = symHint[c * 2]; iv2 = symHint[c * 2 + 1];
+        obs0 = obs1 = obs2 = 0.7; symFace = true;
+      }
       // عمق الإسقاط (لمخزن العمق داخل المخطط)
       const projA = ax * A.n[0] + ay * A.n[1] + az * A.n[2];
       const projB = bx * A.n[0] + by * A.n[1] + bz * A.n[2];
       const projC = cx * A.n[0] + cy * A.n[1] + cz * A.n[2];
+      if (symFace) symFaces++;
 
       for (let y = minY; y <= maxY; y++) {
         for (let x = minX; x <= maxX; x++) {
@@ -241,7 +277,16 @@
           r = clamp01(r / illum); g = clamp01(g / illum); b = clamp01(b / illum);
           const o = pi * 4;
           albedo[o] = r * 255; albedo[o + 1] = g * 255; albedo[o + 2] = b * 255; albedo[o + 3] = 255;
-          normal[o] = (tx * 0.5 + 0.5) * 255; normal[o + 1] = (ty * 0.5 + 0.5) * 255; normal[o + 2] = (tz * 0.5 + 0.5) * 255; normal[o + 3] = 255;
+          // ناموس الوجه + اضطراب التفاصيل الدقيقة (فقط للمناطق المرصودة)
+          let ntx = tx, nty = ty, ntz = tz;
+          const obsHere = w0 * obs0 + w1 * obs1 + w2 * obs2;
+          if (hgx && obsHere > 0.45) {
+            const gd = obsDetail(iu, iv);
+            const k = detailStrength * 3.0 * obsHere;
+            ntx = tx - gd[0] * k; nty = ty + gd[1] * k;
+            const nl2 = Math.hypot(ntx, nty, ntz) || 1; ntx /= nl2; nty /= nl2; ntz /= nl2;
+          }
+          normal[o] = (ntx * 0.5 + 0.5) * 255; normal[o + 1] = (nty * 0.5 + 0.5) * 255; normal[o + 2] = (ntz * 0.5 + 0.5) * 255; normal[o + 3] = 255;
           // AO تقريبي من تجويف العمق
           let ao = 1;
           if (cavity) {
@@ -275,6 +320,7 @@
     fillUnwritten(orm, written, size, [255, Math.round(baseRough * 255), Math.round(baseMetal * 255)]);
 
     return {
+      symFaces,
       albedo: toImage(albedo, size),
       normal: toImage(normal, size),
       orm: toImage(orm, size),

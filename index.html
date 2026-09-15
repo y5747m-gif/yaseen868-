@@ -86,8 +86,8 @@
           <div class="set"><label>الجودة (دقة الشبكة)</label>
             <select id="qualitySel">
               <option value="low">Low — سريع</option>
-              <option value="medium" selected>Medium — متوازن</option>
-              <option value="high">High — مفصّل</option>
+              <option value="medium">Medium — متوازن</option>
+              <option value="high" selected>High — مفصّل</option>
               <option value="ultra">Ultra — أقصى دقة</option>
             </select>
           </div>
@@ -101,8 +101,8 @@
           <div class="set"><label>الهندسة</label>
             <select id="geoSel">
               <option value="fast">Fast — سريع</option>
-              <option value="balanced" selected>Balanced — متوازن</option>
-              <option value="detailed">Detailed — تفاصيل أكثر</option>
+              <option value="balanced">Balanced — متوازن</option>
+              <option value="detailed" selected>Detailed — تفاصيل دقيقة (موصى به)</option>
             </select>
           </div>
           <div class="set"><label>صيغة التصدير</label>
@@ -123,6 +123,13 @@
           <label class="sw"><input type="checkbox" id="enhanceSw"><span></span> تحسين الصورة قبل التحليل (حدة/تباين/تشويش)</label>
           <label class="sw"><input type="checkbox" id="perspSw"><span></span> تصحيح المنظور تلقائيًا</label>
           <label class="sw"><input type="checkbox" id="partsSw" checked><span></span> الحفاظ على الأجزاء المنفصلة</label>
+        </div>
+        <h3 class="mini">🧠 المساعد العصبي Mokta Neural Assistant</h3>
+        <div class="switches">
+          <label class="sw"><input type="checkbox" id="nnSw" checked><span></span> تفعيل المساعد العصبي (فهم المشهد + تحليل ذكي)</label>
+          <label class="sw"><input type="checkbox" id="nnFocusSw" checked><span></span> استخراج الجسم المركّز بخريطة الانتباه</label>
+          <label class="sw"><input type="checkbox" id="nnCompleteSw" checked><span></span> تعويض الأجزاء المفقودة (تماثل + إكمال الحواف المقطوعة)</label>
+          <label class="sw"><input type="checkbox" id="nnDetailSw" checked><span></span> صقل التفاصيل الدقيقة للعمق</label>
         </div>
         <h3 class="mini">📏 القياس والمرجعية</h3>
         <div class="setgrid">
@@ -175,6 +182,7 @@
         <button class="tab hidden" data-tab="mask">القناع</button>
         <button class="tab hidden" data-tab="depth">خريطة العمق</button>
         <button class="tab hidden" data-tab="saliency">البروز</button>
+        <button class="tab hidden" data-tab="focus">خريطة الانتباه (Neural)</button>
         <button class="tab hidden" data-tab="albedo">الـ Texture (Albedo)</button>
         <button class="tab hidden" data-tab="normal">خريطة النواميس</button>
       </div>
@@ -251,6 +259,13 @@
         <h2>📋 معلومات النموذج</h2>
         <dl class="kv" id="infoBox"></dl>
       </div>
+    </div>
+
+    <div class="card" id="neuralCard">
+      <h2>🧠 تقرير المساعد العصبي</h2>
+      <p class="sub">ما فهمه المحرك من الصورة وما عوّضه أو صقله أثناء البناء — كل ذلك محليًا داخل متصفحك</p>
+      <div id="neuralTags" class="palette"></div>
+      <div id="neuralBox" class="fit"></div>
     </div>
 
     <div class="card">
@@ -368,6 +383,7 @@
 <script src="ai3d/engine/depth.js"></script>
 <script src="ai3d/engine/geometry.js"></script>
 <script src="ai3d/engine/texture.js"></script>
+<script src="ai3d/engine/neural.js"></script>
 <script src="ai3d/engine/exporters.js"></script>
 <script src="ai3d/engine/pipeline.js"></script>
 <script src="ai3d/engine/backends.js"></script>

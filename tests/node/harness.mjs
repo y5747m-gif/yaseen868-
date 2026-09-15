@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const ENGINE_DIR = path.resolve(__dirname, '../../ai3d/engine');
 
-const FILES = ['core.js', 'analysis.js', 'detection.js', 'segmentation.js', 'depth.js', 'geometry.js', 'texture.js', 'exporters.js', 'pipeline.js'];
+const FILES = ['core.js', 'analysis.js', 'detection.js', 'segmentation.js', 'depth.js', 'geometry.js', 'texture.js', 'neural.js', 'exporters.js', 'pipeline.js'];
 
 export function loadEngine() {
   for (const f of FILES) {

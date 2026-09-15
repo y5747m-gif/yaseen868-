@@ -15,7 +15,9 @@
     { id: 'uploading', ar: 'رفع الصورة', en: 'Uploading' },
     { id: 'analyzing', ar: 'تحليل الصورة', en: 'Analyzing Image' },
     { id: 'detecting', ar: 'اكتشاف الأجسام', en: 'Detecting Objects' },
+    { id: 'neural', ar: 'المساعد العصبي: فهم المشهد واستخراج الجسم المركّز', en: 'Neural Assistant: Scene & Focus' },
     { id: 'segmenting', ar: 'عزل الجسم', en: 'Segmenting' },
+    { id: 'completion', ar: 'تعويض الأجزاء المفقودة', en: 'Completing Missing Parts' },
     { id: 'depth', ar: 'توليد خريطة العمق', en: 'Generating Depth Map' },
     { id: 'cloud', ar: 'توليد السحابة النقطية', en: 'Building Point Cloud' },
     { id: 'geometry', ar: 'إعادة بناء الهندسة', en: 'Reconstructing Geometry' },
@@ -27,7 +29,7 @@
     { id: 'complete', ar: 'اكتمل', en: 'Complete' }
   ];
 
-  const QUALITY_WORK = { low: 256, medium: 384, high: 512, ultra: 640 };
+  const QUALITY_WORK = { low: 256, medium: 448, high: 640, ultra: 800 };
 
   function frameImage(frame, maxSide) {
     if (frame.img) return frame.img;
@@ -46,11 +48,14 @@
   async function runPipeline(frames, options, onProgress) {
     const t0 = U.now();
     options = Object.assign({
-      mode: 'single', quality: 'medium', texture: 'high', geometry: 'balanced',
+      mode: 'single', quality: 'high', texture: 'high', geometry: 'detailed',
       output: 'glb', enhance: false, perspective: false, selection: 'auto',
       depthScale: 0.55, refWidthCm: null, refObject: null, refObjectCm: null,
-      keepParts: true, targetHeightCm: null
+      keepParts: true, targetHeightCm: null,
+      neural: true, completeMissing: true, focusExtract: true, neuralDetail: true
     }, options || {});
+    const NN = options.neural && AI3D.Neural ? AI3D.Neural : null;
+    const neural = { enabled: !!NN };
 
     const emit = async (stage, pct) => {
       if (onProgress) onProgress(stage, pct);
@@ -81,13 +86,36 @@
     // صورة العمل للحقول
     const workMax = QUALITY_WORK[options.quality] || 384;
     const ws = Math.min(1, workMax / Math.max(ref.w, ref.h));
-    const workImg = U.resizeImage(ref.img, Math.max(64, Math.round(ref.w * ws)), Math.max(64, Math.round(ref.h * ws)));
-    const ww = workImg.width, wh = workImg.height;
-    const aspect = ref.w / ref.h;
+    let workImg = U.resizeImage(ref.img, Math.max(64, Math.round(ref.w * ws)), Math.max(64, Math.round(ref.h * ws)));
+    let ww = workImg.width, wh = workImg.height;
+    let aspect = ref.w / ref.h;
 
     /* 2) الاكتشاف */
     await emit('detecting', 20);
     const detection = call('detection', AI3D.Detection.detectObjects, workImg, ww, wh, analysis, { quality: options.quality });
+
+    /* 2b) المساعد العصبي: فهم المشهد + خريطة الانتباه + اختيار الجسم المركّز */
+    let focus = null;
+    if (NN) {
+      await emit('neural', 25);
+      try {
+        neural.scene = NN.understandScene(workImg, ww, wh, analysis, detection);
+        focus = NN.focusMap(workImg, ww, wh, { saliency: detection.saliency, saliencyW: detection.saliencyW, saliencyH: detection.saliencyH });
+        neural.focus = { attention: focus.attention, ms: focus.ms, map: focus.map, w: ww, h: wh };
+        if (options.focusExtract && options.selection === 'auto' && detection.objects.length > 1) {
+          const pick = NN.pickFocusedObject(detection.objects, focus);
+          neural.pick = pick;
+          if (pick.index > 0) {
+            // ضع الجسم المركّز أولًا ليكون هو الهدف الافتراضي
+            const arr = detection.objects.slice();
+            const [chosen] = arr.splice(pick.index, 1);
+            arr.unshift(chosen);
+            detection.objects = arr;
+          }
+        }
+      } catch (e) { neural.error = String(e && e.message || e); }
+      await U.tick(0);
+    }
 
     // اختيار الهدف
     let targetBox = null, objectType = 'object', objectLabel = 'جسم', selected = null;
@@ -108,19 +136,22 @@
 
     /* 3) العزل */
     await emit('segmenting', 30);
+    // أقنعة الاكتشاف بدقة الاكتشاف (dw×dh) وقد تختلف عن دقة العمل (ww×wh)
+    const dw = detection.workW || ww, dh = detection.workH || wh;
     let seed;
     if (options.selection === 'all' && detection.objects.length > 1) {
-      seed = new Float32Array(ww * wh);
+      seed = new Float32Array(dw * dh);
       for (const o of detection.objects) for (let i = 0; i < seed.length; i++) seed[i] = Math.max(seed[i], o.mask[i]);
     } else if (selected) {
       seed = selected.mask;
     } else {
-      seed = new Float32Array(ww * wh);
+      seed = new Float32Array(dw * dh);
       for (let i = 0; i < seed.length; i++) seed[i] = detection.saliency[i] > detection.threshold ? 1 : 0;
     }
+    if (seed.length !== ww * wh) seed = F.resampleField(seed, dw, dh, ww, wh);
     const detail = options.quality === 'low' ? 'fast' : (options.quality === 'ultra' ? 'ultra' : 'high');
     let seg = call('segmentation', AI3D.Segmentation.refineMask, workImg, ww, wh, seed,
-      { detail, keepParts: options.keepParts, minPartRatio: 0.003 });
+      { detail, keepParts: options.keepParts, minPartRatio: 0.003, seedW: dw, seedH: dh });
     if (seg.coverage < 0.004) {
       // احتياطي: استخدم بذرة الاكتشاف مباشرة
       const fb = new Float32Array(ww * wh);
@@ -130,8 +161,59 @@
       }
       seg = { mask: fb, hard: fb, w: ww, h: wh, bbox: targetBox, coverage: (targetBox.x1 - targetBox.x0) * (targetBox.y1 - targetBox.y0), confidence: 0.35, method: 'bbox-fallback' };
     }
-    const mask = seg.hard || seg.mask;
+    let mask = seg.hard || seg.mask;
     await U.tick(0);
+
+    /* 3b) صقل القناع بخريطة الانتباه (استخراج الجسم المركّز بدقة) */
+    if (NN && focus && options.focusExtract && seg.method !== 'bbox-fallback') {
+      try {
+        const rf = NN.refineMaskWithFocus(mask, ww, wh, focus, { keepParts: options.keepParts });
+        neural.maskRefine = { note: rf.note, changed: rf.changed, changedRatio: rf.changedRatio };
+        if (rf.changed) { mask = rf.mask; seg.hard = rf.mask; seg.bbox = AI3D.Segmentation.bboxOf(rf.mask, ww, wh); seg.neuralRefined = true; }
+      } catch (e) { neural.maskRefineError = String(e && e.message || e); }
+    }
+
+    /* 3c) تعويض الأجزاء المفقودة (تماثل + إكمال الصورة الظلية) */
+    let completion = null, symAxis = null, addedMask = null, extended = null;
+    if (NN && options.completeMissing) {
+      await emit('completion', 38);
+      try {
+        symAxis = NN.detectSymmetryAxis(workImg, ww, wh, mask, seg.bbox);
+        neural.sym = symAxis;
+        // توسيع اللوحة إذا كان الجسم مقطوعًا عند حافة الإطار
+        const ext = options.mode === 'multi' ? null : NN.extendCanvas(workImg, ww, wh, mask, seg.bbox, { ratio: 0.6 });
+        if (ext) {
+          extended = ext;
+          // وسّع الصورة المرجعية بنفس النسب (للخبز بدقة كاملة)
+          const sx = ref.w / ww, sy = ref.h / wh;
+          const rl = Math.round(ext.offset.left * sx), rt = Math.round(ext.offset.top * sy);
+          const rr = Math.round(ext.offset.right * sx), rb = Math.round(ext.offset.bottom * sy);
+          const refExt = U.imageLike(ref.w + rl + rr, ref.h + rt + rb);
+          const upPad = U.resizeImage(ext.img, refExt.width, refExt.height);
+          refExt.data.set(upPad.data);
+          for (let y = 0; y < ref.h; y++) {
+            const so = y * ref.w * 4, doff = ((y + rt) * refExt.width + rl) * 4;
+            refExt.data.set(ref.img.data.subarray(so, so + ref.w * 4), doff);
+          }
+          ref = { img: refExt, w: refExt.width, h: refExt.height, name: ref.name, src: ref.src };
+          workImg = ext.img; ww = ext.w; wh = ext.h; aspect = ref.w / ref.h;
+          mask = ext.mask;
+          seg = Object.assign({}, seg, { mask: ext.mask, hard: ext.mask, w: ww, h: wh, bbox: AI3D.Segmentation.bboxOf(ext.mask, ww, wh) });
+          symAxis = NN.detectSymmetryAxis(workImg, ww, wh, mask, seg.bbox, {
+            pad: ext.pad, truncated: { left: ext.offset.left > 0, right: ext.offset.right > 0 } });
+          neural.sym = symAxis;
+          neural.extended = { offset: ext.offset, w: ww, h: wh };
+        }
+        completion = NN.completeMask(mask, ww, wh, seg.bbox, symAxis, { pad: ext ? ext.pad : null });
+        neural.completion = { addedCount: completion.addedCount, addedRatio: completion.addedRatio, truncated: completion.truncated };
+        if (completion.addedCount > 0) {
+          mask = completion.mask; seg.hard = completion.mask; addedMask = completion.added;
+          seg.bbox = AI3D.Segmentation.bboxOf(mask, ww, wh);
+          seg.completed = true;
+        }
+      } catch (e) { neural.completionError = String(e && e.message || e); }
+      await U.tick(0);
+    }
 
     /* 4) العمق (مع دمج متعدد الصور) */
     await emit('depth', 42);
@@ -150,7 +232,7 @@
         { saliency: detection.saliency, saliencyW: detection.saliencyW, saliencyH: detection.saliencyH, analysis, objectType },
         { geometry: geoMode, objectType, depthScale: depthRangeScale,
           px2worldX: aspect / ww, px2worldY: 1 / wh });
-      depthFrames.push({ depth: est.depth, mask: m, confidence: est.confidence, w: ww, h: wh, normals: est.normals, geometry: est.geometry });
+      depthFrames.push({ depth: est.depth, mask: m, confidence: est.confidence, w: ww, h: wh, normals: est.normals, geometry: est.geometry, detail: est.detail || null, method: est.method });
       await U.tick(0);
     }
     let depthRes = depthFrames[0];
@@ -158,7 +240,25 @@
       const fused = AI3D.Depth.fuseDepths(depthFrames);
       depthRes = Object.assign({}, depthFrames[0], { depth: fused.depth, confidence: fused.confidence, fused: fused.views });
     }
-    const depth = depthRes.depth, confidence = depthRes.confidence;
+    let depth = depthRes.depth, confidence = depthRes.confidence;
+    let workImgTex = workImg;
+    if (NN && addedMask) {
+      try {
+        const cd = NN.completeDepthAndColor(depth, workImg, mask, addedMask, ww, wh, symAxis);
+        depth = cd.depth; workImgTex = cd.img;
+        confidence = Float32Array.from(confidence);
+        for (let i = 0; i < confidence.length; i++) if (addedMask[i]) confidence[i] = Math.min(confidence[i], cd.confidence[i]);
+        neural.completion.transferred = cd.transferred;
+        depthRes = Object.assign({}, depthRes, { depth, confidence });
+      } catch (e) { neural.completionDepthError = String(e && e.message || e); }
+    }
+    if (NN && options.neuralDetail && geoMode !== 'fast') {
+      try {
+        const rd = NN.refineDepthDetails(depth, workImg, mask, ww, wh, { amount: geoMode === 'detailed' ? 0.7 : 0.4 });
+        depth = rd.depth; neural.detail = { changeEnergy: rd.changeEnergy };
+        depthRes = Object.assign({}, depthRes, { depth });
+      } catch (e) { neural.detailError = String(e && e.message || e); }
+    }
     const depthStats = depthStatsOf(depth, mask, ww, wh);
 
     /* 5) السحابة النقطية */
@@ -174,7 +274,8 @@
     await U.tick(0);
     let mesh = call('reconstruction', AI3D.Geometry.reconstruct, {
       depth, mask, confidence, w: ww, h: wh, bbox: seg.bbox,
-      quality: options.quality, depthScale: depthRangeScale, objectType, aspect
+      quality: options.quality, depthScale: depthRangeScale, objectType, aspect,
+      geometry: geoMode
     });
     await emit('mesh', 72);
 
@@ -184,11 +285,30 @@
     const cavity = AI3D.Texture.buildCavityMap(depth, ww, wh);
     const material = call('material', AI3D.Texture.estimateMaterial, workImg, ww, wh, mask, analysis, objectType);
     let atlas = null, maps = null;
+    // صورة الخبز: الأصلية، أو نسخة بها الألوان المُعوَّضة إن حدث تعويض
+    let bakeImg = ref.img;
+    if (addedMask && workImgTex !== workImg) {
+      bakeImg = U.cloneImage(ref.img);
+      const up = U.resizeImage(workImgTex, ref.w, ref.h);
+      const am = F.resampleField(addedMask, ww, wh, ref.w, ref.h);
+      for (let i = 0; i < ref.w * ref.h; i++) if (am[i] > 0.4) { const o = i * 4; bakeImg.data[o] = up.data[o]; bakeImg.data[o + 1] = up.data[o + 1]; bakeImg.data[o + 2] = up.data[o + 2]; }
+    }
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         atlas = AI3D.Texture.buildUVAtlas(mesh, texSize);
-        maps = AI3D.Texture.bakeMaps(atlas, ref.img, {
-          light: analysis.light, material, cavity, cavityW: ww, cavityH: wh
+        let symHint = null;
+        if (NN && symAxis && symAxis.confident && options.completeMissing) {
+          try {
+            // محور التماثل في فضاء العالم: X = (u − مركز الصندوق) × aspect
+            const axisX = (symAxis.axis - (seg.bbox.x0 + seg.bbox.x1) / 2) * aspect;
+            const th = NN.symmetricTextureHints(atlas.mesh, axisX);
+            if (th && th.hits > 0) { symHint = th.hint; neural.texHints = { hits: th.hits, ratio: th.ratio }; }
+          } catch (e) { neural.texHintError = String(e && e.message || e); }
+        }
+        maps = AI3D.Texture.bakeMaps(atlas, bakeImg, {
+          light: analysis.light, material, cavity, cavityW: ww, cavityH: wh,
+          detailStrength: geoMode === 'fast' ? 0.3 : (geoMode === 'detailed' ? 0.9 : 0.6),
+          symHint
         });
         break;
       } catch (e) {
@@ -225,7 +345,10 @@
     });
     await emit('complete', 100);
 
+    if (NN) { neural.report = NN.buildReport(neural); neural.name = NN.name; neural.version = NN.version; }
+
     return {
+      neural,
       mesh, maps, atlas, material, analysis, detection, segmentation: seg,
       depth: depthRes, depthStats, cloud, scores, info, stats, scaleInfo,
       options: Object.assign({}, options), objectType, objectLabel, typeConfidence,
@@ -391,7 +514,7 @@
       depth: blended, mask, confidence: result.depth.confidence, w: ww, h: wh,
       bbox: result.segmentation.bbox, quality: opts.quality,
       depthScale: result.options.depthScale, objectType: result.objectType,
-      aspect: result.refW / result.refH
+      aspect: result.refW / result.refH, geometry: opts.geometry || 'detailed'
     });
     if (onProgress) onProgress('mesh', 85);
     await U.tick(10);

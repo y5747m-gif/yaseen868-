@@ -8,21 +8,21 @@
 | 2 | IMAGE → ANALYSIS → DEPTH → RECONSTRUCTION → MESH → TEXTURE → OPTIMIZATION | `ai3d/engine/pipeline.js` (13 مرحلة) |
 | 3 | صيغ الصور JPG/PNG/WEBP/BMP/TIFF + أنواع محتوى متعددة | `core.js › loadImageFile` (EXIF orientation) + مصنّف الأنواع في `detection.js` |
 | 4 | تحليل الصورة (دقة، نسبة، جودة، تشويش، إضاءة، تباين، ألوان، حدة، زاوية، منظور) | `analysis.js › analyzeImage` |
-| 5 | Object Detection وعناصر متعددة قابلة للاختيار | `detection.js › detectObjects` + واجهة «الأجسام» في `studio.html` |
-| 6 | العزل Segmentation بمحافظة على الشعر/الحواف/الفتحات | `segmentation.js › refineMask` (GMM + color-line matting) |
+| 5 | Object Detection وعناصر متعددة قابلة للاختيار | `detection.js › detectObjects` + `neural.js › focusMap / pickFocusedObject` (اختيار الجسم المركّز) + واجهة «الأجسام» |
+| 6 | العزل Segmentation بمحافظة على الشعر/الحواف/الفتحات | `segmentation.js › refineMask` (GMM + color-line matting) + `neural.js › refineMaskWithFocus` |
 | 7 | Depth Estimation وخريطة عمق أساسية للبناء | `depth.js › estimateDepth` (SfS + إشارات متعددة + ثقة) |
 | 8 | تحليل الشكل الهندسي (حواف، انحناءات، أسطح، تجاويف، أجزاء) | `depth.js › analyzeDepthGeometry / segmentParts` |
 | 9 | فهم نوع الجسم (مركبة/أثاث/شخص/حيوان/منتج/مبنى) | `detection.js › classify` + `TYPE_AR` |
-| 10 | تقدير الأجزاء غير المرئية مع تمييز Observed vs Estimated | `geometry.js` (سمة `observed` لكل رأس) + زر `◑` في العارض |
+| 10 | تقدير الأجزاء غير المرئية مع تمييز Observed vs Estimated | `neural.js › detectSymmetryAxis / extendCanvas / completeMask / completeDepthAndColor / symmetricTextureHints` + `geometry.js` (سمة `observed`) + زر `◑` في العارض |
 | 11 | تمثيل ثلاثي الأبعاد (Point Cloud / Implicit / Voxel) ثم Mesh | `geometry.js › buildPointCloud` و`reconstruct` (TSDF + Marching Tetrahedra) |
 | 12 | Mesh Reconstruction: إغلاق ثقوب، إزالة تشوهات، تحسين حواف | `geometry.js › repairMesh / fillSmallHoles / removeIsolated` |
-| 13 | مستويات جودة Low/Medium/High/Ultra | `geometry.js › QUALITY` (دقة شبكة TSDF) + تبسيط يدوي可选 |
+| 13 | مستويات جودة Low/Medium/High/Ultra | `geometry.js › QUALITY` (دقة شبكة TSDF) + `GEO_MODE` (fast/balanced/detailed) + تبسيط يدوي اختياري |
 | 14 | Texture من الصورة + UV Mapping | `texture.js › buildUVAtlas` (إسقاط محوري 6 اتجاهات + تعبئة) |
 | 15 | تحليل الخامات (معدن/بلاستيك/زجاج/خشب/قماش/جلد/مطاط/حجر/خرسانة/سيراميك) | `texture.js › estimateMaterial` + خرائط Roughness/Metalness |
 | 16 | تحليل الإضاءة وعدم تثبيتها داخل الـ Texture | `analysis.js › estimateLighting` + إزالة الإضاءة (de-light) في `bakeMaps` |
 | 17 | معالجة الانعكاسات وفصل لون السطح عن الإضاءة | `analysis › light.specular` + `estimateMaterial › scores.glass/metal` |
 | 18 | معالجة الشفافية (زجاج/بلاستيك/ماء) | `estimateMaterial › transparency/ior` + `KHR_materials_transmission` في GLB |
-| 19 | إعادة بناء التفاصيل (هندسة كبيرة + Normal/Texture للتفاصيل الدقيقة) | شبكة TSDF للهندسة + `bakeMaps` لخرائط Normal/AO/ORM |
+| 19 | إعادة بناء التفاصيل (هندسة كبيرة + Normal/Texture للتفاصيل الدقيقة) | `depth.js › buildDetailLayer` (طبقة HF تُضاف للعمق) + `geometry.js › GEO_MODE.detailed` (شبكة أدق بلا تنعيم + Unsharp) + `bakeMaps › detailStrength` (تفاصيل الصورة داخل خريطة النواميس) |
 | 20 | التعامل مع الأشخاص (رأس/جسم/أطراف/وضعية) | `detection` كشف الرأس (دوائر) + `objectFeatures` (skinRatio/تماثل) + سماكة مناسبة في `THICKNESS.human` |
 | 21 | السيارات والمركبات (هيكل/نوافذ/عجلات…) | `detectCircles` (عجلات) + `THICKNESS.vehicle` + تصنيف `vehicle` |
 | 22 | المنتجات (شكل/لون/شعار/كتابة/حواف) | خبز الألوان بدقة حتى 4096px + تصنيف `product` |
@@ -58,7 +58,7 @@
 | 52 | دعم اللمس (سحب/قرص/إصبعان/نقرة مزدوجة) | `viewer.js › _bindInput` (Pointer Events) |
 | 53 | وضع ليلي ونهاري | `data-theme` + زر التبديل + حفظ الاختيار |
 | 54 | رسائل خطأ واضحة بالعربية | `studio.js › friendlyError` |
-| 55 | الذكاء الاصطناعي مسؤول عن التحليل (لا قواعد ثابتة فقط) | نماذج إحصائية/تعلمية خفيفة: GMM (EM)، Saliency Optimization، حل المربعات الصغرى، QEM |
+| 55 | الذكاء الاصطناعي مسؤول عن التحليل (لا قواعد ثابتة فقط) | `neural.js` (Mokta Neural Assistant: طبقات لوجستية بأوزان مضمّنة لفهم المشهد وخريطة الانتباه) + GMM (EM)، Saliency Optimization، المربعات الصغرى، QEM |
 | 56 | البنية المقترحة للمراحل | مطابقة بالكامل في `pipeline.js` |
 | 57 | محرك إعادة بناء حقيقي لا واجهة فوق API | `ai3d/engine` هو قلب المشروع؛ الواجهة مجرد وسيط |
 | 58 | رحلة المستخدم من الرفع حتى الحفظ والتصدير | مطبّقة في `studio.html` بأقسام مرقّمة 1→7 |

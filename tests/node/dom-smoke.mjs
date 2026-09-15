@@ -14,12 +14,12 @@ try {
   process.exit(0);
 }
 
-const html = fs.readFileSync(path.join(ROOT, 'studio.html'), 'utf8');
+const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const errors = [];
 const vc = new VirtualConsole();
 vc.on('jsdomError', e => errors.push('jsdomError: ' + e.message));
 vc.on('error', (...a) => errors.push('console.error: ' + a.join(' ')));
-const dom = new JSDOM(html, { url:'http://localhost:8000/studio.html', runScripts:'outside-only', pretendToBeVisual:true, virtualConsole:vc });
+const dom = new JSDOM(html, { url:'http://localhost:8000/index.html', runScripts:'outside-only', pretendToBeVisual:true, virtualConsole:vc });
 const w = dom.window;
 
 /* ---- Canvas2D stub ---- */

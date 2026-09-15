@@ -342,6 +342,10 @@
       enhance: $('enhanceSw').checked,
       perspective: $('perspSw').checked,
       keepParts: $('partsSw').checked,
+      neural: $('nnSw').checked,
+      focusExtract: $('nnFocusSw').checked,
+      completeMissing: $('nnCompleteSw').checked,
+      neuralDetail: $('nnDetailSw').checked,
       selection: state.selection,
       depthScale: parseFloat($('depthRange').value),
       refWidthCm: parseFloat($('refInput').value) || null,
@@ -406,6 +410,9 @@
     if (tab === 'depth' && r) { show(AI3D.Texture.renderDepthPreview(r.depth.depth, r.segmentation.hard || r.segmentation.mask, r.workW, r.workH)); return; }
     if (tab === 'saliency' && state.detection) {
       show(AI3D.Texture.renderFieldPreview(state.detection.saliency, state.detection.saliencyW, state.detection.saliencyH, null)); return;
+    }
+    if (tab === 'focus' && r && r.neural && r.neural.focus && r.neural.focus.map) {
+      show(AI3D.Texture.renderFieldPreview(r.neural.focus.map, r.neural.focus.w, r.neural.focus.h, null)); return;
     }
     if (tab === 'albedo' && r) { show(U.toCanvas(r.maps.albedo)); return; }
     if (tab === 'normal' && r) { show(U.toCanvas(r.maps.normal)); return; }
@@ -521,7 +528,7 @@
   /* ---------------- النتيجة ---------------- */
   function showResult(res) {
     document.querySelectorAll('#previewTabs .tab').forEach(t => {
-      if (['mask', 'depth', 'saliency', 'albedo', 'normal'].includes(t.dataset.tab)) t.classList.remove('hidden');
+      if (['mask', 'depth', 'saliency', 'focus', 'albedo', 'normal'].includes(t.dataset.tab)) t.classList.remove('hidden');
     });
     ensureViewer();
     const texCanvas = U.toCanvas(res.maps.albedo);
@@ -530,6 +537,7 @@
     state.viewer.setMaterial(res.material);
     renderScores();
     renderInfo();
+    renderNeural();
     renderCompare();
     renderImproveTips();
     $('resultSec').classList.remove('hidden');
@@ -572,6 +580,25 @@
       '<div class="hint" style="grid-column:1/-1">⚠️ ' + i.estimatedNotice + '</div>';
     const hs = $('hudStats');
     if (hs) hs.textContent = num(st.faces) + ' وجه • ' + num(st.vertices) + ' رأس • ' + i.textureResolution;
+  }
+
+  function renderNeural() {
+    const card = $('neuralCard');
+    if (!card) return;
+    const nn = state.result && state.result.neural;
+    if (!nn || !nn.enabled) { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+    const tags = (nn.scene && nn.scene.tags) || [];
+    $('neuralTags').innerHTML = tags.length
+      ? tags.map(t => '<span class="objchip sel" style="display:inline-block;padding:4px 10px;margin:2px"><b>' + t.ar + '</b> <small>' + Math.round(t.p * 100) + '%</small></span>').join('')
+      : '<span class="hint">مشهد عام</span>';
+    const lines = (nn.report || []).map(l => '<div class="fitline ok">✔ ' + l + '</div>');
+    if (nn.scene && nn.scene.advice && nn.scene.advice.length) lines.push(...nn.scene.advice.map(a => '<div class="fitline warn">💡 ' + a + '</div>'));
+    if (nn.extended) lines.push('<div class="fitline warn">↔ وُسِّعت اللوحة لإكمال الجسم المقطوع (يسار ' + nn.extended.offset.left + 'px • يمين ' + nn.extended.offset.right + 'px • أعلى ' + nn.extended.offset.top + 'px • أسفل ' + nn.extended.offset.bottom + 'px)</div>');
+    const errs = Object.keys(nn).filter(k => /rror/i.test(k));
+    if (errs.length) lines.push('<div class="fitline bad">⚠ خطوات لم تكتمل: ' + errs.map(k => k + ': ' + nn[k]).join(' • ') + '</div>');
+    lines.push('<div class="hint">' + (nn.name || 'Neural') + ' v' + (nn.version || '') + ' — كل ما تم تعويضه موسوم كـ «مُستنتَج» ويمكن إخفاؤه من العارض (زر ◑).</div>');
+    $('neuralBox').innerHTML = lines.join('');
   }
 
   function renderImproveTips() {
