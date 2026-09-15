@@ -237,3 +237,15 @@ input[type=range]{accent-color:var(--acc)}
   .hud-row button{font-size:11px;padding:4px 8px}
   .brand small{display:none}
 }
+
+/* ---- SEO / FAQ ---- */
+.hero h1 .h1-sub{display:block;font-size:clamp(14px,1.6vw,18px);font-weight:500;color:var(--muted);margin-top:8px;letter-spacing:0}
+.faq{border-bottom:1px solid var(--line);padding:8px 0}
+.faq summary{cursor:pointer;font-weight:600;font-size:14px;color:var(--text);list-style:none;position:relative;padding-left:22px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:'+';position:absolute;left:2px;top:0;color:var(--acc);font-weight:700}
+.faq[open] summary::after{content:'−'}
+.faq p{margin:6px 0 2px;font-size:13.5px;color:var(--muted)}
+ol.bullets{padding-right:20px}
+ol.bullets a{color:var(--acc);text-decoration:none}
+ol.bullets a:hover{text-decoration:underline}
