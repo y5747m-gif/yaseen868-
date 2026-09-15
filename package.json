@@ -1,0 +1,25 @@
+{
+  "name": "mokta-ai-3d",
+  "version": "1.0.0",
+  "description": "mokta ai 3D Online AI — محرك إعادة بناء ثلاثي الأبعاد محلي ومستقل بالذكاء الاصطناعي",
+  "main": "index.html",
+  "scripts": {
+    "start": "node -e \"const http=require('http'),fs=require('fs'),path=require('path');http.createServer((req,res)=>{let f=req.url.split('?')[0];if(f==='/')f='/index.html';let p=path.join(process.cwd(),f);if(!fs.existsSync(p)||fs.statSync(p).isDirectory()){res.writeHead(404);res.end('404 Not Found');return;}let m={'html':'text/html;charset=utf-8','js':'application/javascript;charset=utf-8','css':'text/css;charset=utf-8','json':'application/json','png':'image/png','jpg':'image/jpeg','svg':'image/svg+xml','glb':'model/gltf-binary'}[p.split('.').pop()]||'application/octet-stream';res.writeHead(200,{'Content-Type':m,'Access-Control-Allow-Origin':'*'});fs.createReadStream(p).pipe(res);}).listen(process.env.PORT||3000,'0.0.0.0',()=>console.log('Mokta AI 3D server running on port '+(process.env.PORT||3000)));\"",
+    "test": "node tests/node/run-tests.mjs"
+  },
+  "keywords": [
+    "3d",
+    "ai",
+    "image-to-3d",
+    "photogrammetry",
+    "tsdf",
+    "webgl",
+    "glb",
+    "gltf",
+    "obj",
+    "stl",
+    "ply"
+  ],
+  "author": "y5747m-gif",
+  "license": "MIT"
+}
