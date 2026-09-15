@@ -180,6 +180,30 @@
     const mat = opts.material || { roughness: 0.6, metallic: 0.1 };
     const baseRough = mat.roughness, baseMetal = mat.metallic;
 
+    /* خريطة تفاصيل دقيقة من الصورة (لخريطة النواميس):
+     * ارتفاع = تردد عالٍ للإضاءة (بعد إزالة أثر لون الخامة)، ثم تدرّجه يُضاف
+     * إلى ناموس الوجه في فضاء المماس. هذا ما يجعل النقوش والحزوز والمسام
+     * تظهر في الإضاءة حتى حيث لا تكفي دقة الشبكة. */
+    const detailStrength = opts.detailStrength == null ? 0.6 : opts.detailStrength;
+    let hgx = null, hgy = null;
+    if (detailStrength > 0) {
+      const dl = Math.max(1, Math.round(Math.min(sw, sh) / 900));
+      const lumF = new Float32Array(sw * sh);
+      for (let i = 0; i < sw * sh; i++) lumF[i] = (0.2126 * src[i * 4] + 0.7152 * src[i * 4 + 1] + 0.0722 * src[i * 4 + 2]) / 255;
+      const lowF = F.boxBlur(Float32Array.from(lumF), sw, sh, dl * 3, 2);
+      const hfF = new Float32Array(sw * sh);
+      for (let i = 0; i < hfF.length; i++) hfF[i] = lumF[i] - lowF[i];
+      const g = F.gradientXY(hfF, sw, sh);
+      hgx = g.gx; hgy = g.gy;
+    }
+    const obsDetail = (iu, iv) => {
+      if (!hgx) return null;
+      const sx = clamp(Math.round(iu * (sw - 1)), 0, sw - 1);
+      const sy = clamp(Math.round(iv * (sh - 1)), 0, sh - 1);
+      const j = sy * sw + sx;
+      return [hgx[j], hgy[j]];
+    };
+
     for (let t = 0; t < I.length; t += 3) {
       const a = I[t], b = I[t + 1], c = I[t + 2];
       const ax = P[a * 3], ay = P[a * 3 + 1], az = P[a * 3 + 2];
@@ -241,7 +265,16 @@
           r = clamp01(r / illum); g = clamp01(g / illum); b = clamp01(b / illum);
           const o = pi * 4;
           albedo[o] = r * 255; albedo[o + 1] = g * 255; albedo[o + 2] = b * 255; albedo[o + 3] = 255;
-          normal[o] = (tx * 0.5 + 0.5) * 255; normal[o + 1] = (ty * 0.5 + 0.5) * 255; normal[o + 2] = (tz * 0.5 + 0.5) * 255; normal[o + 3] = 255;
+          // ناموس الوجه + اضطراب التفاصيل الدقيقة (فقط للمناطق المرصودة)
+          let ntx = tx, nty = ty, ntz = tz;
+          const obsHere = w0 * obs0 + w1 * obs1 + w2 * obs2;
+          if (hgx && obsHere > 0.45) {
+            const gd = obsDetail(iu, iv);
+            const k = detailStrength * 3.0 * obsHere;
+            ntx = tx - gd[0] * k; nty = ty + gd[1] * k;
+            const nl2 = Math.hypot(ntx, nty, ntz) || 1; ntx /= nl2; nty /= nl2; ntz /= nl2;
+          }
+          normal[o] = (ntx * 0.5 + 0.5) * 255; normal[o + 1] = (nty * 0.5 + 0.5) * 255; normal[o + 2] = (ntz * 0.5 + 0.5) * 255; normal[o + 3] = 255;
           // AO تقريبي من تجويف العمق
           let ao = 1;
           if (cavity) {

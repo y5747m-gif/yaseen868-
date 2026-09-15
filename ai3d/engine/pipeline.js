@@ -27,7 +27,7 @@
     { id: 'complete', ar: 'اكتمل', en: 'Complete' }
   ];
 
-  const QUALITY_WORK = { low: 256, medium: 384, high: 512, ultra: 640 };
+  const QUALITY_WORK = { low: 256, medium: 448, high: 640, ultra: 800 };
 
   function frameImage(frame, maxSide) {
     if (frame.img) return frame.img;
@@ -46,7 +46,7 @@
   async function runPipeline(frames, options, onProgress) {
     const t0 = U.now();
     options = Object.assign({
-      mode: 'single', quality: 'medium', texture: 'high', geometry: 'balanced',
+      mode: 'single', quality: 'high', texture: 'high', geometry: 'detailed',
       output: 'glb', enhance: false, perspective: false, selection: 'auto',
       depthScale: 0.55, refWidthCm: null, refObject: null, refObjectCm: null,
       keepParts: true, targetHeightCm: null
@@ -108,19 +108,22 @@
 
     /* 3) العزل */
     await emit('segmenting', 30);
+    // أقنعة الاكتشاف بدقة الاكتشاف (dw×dh) وقد تختلف عن دقة العمل (ww×wh)
+    const dw = detection.workW || ww, dh = detection.workH || wh;
     let seed;
     if (options.selection === 'all' && detection.objects.length > 1) {
-      seed = new Float32Array(ww * wh);
+      seed = new Float32Array(dw * dh);
       for (const o of detection.objects) for (let i = 0; i < seed.length; i++) seed[i] = Math.max(seed[i], o.mask[i]);
     } else if (selected) {
       seed = selected.mask;
     } else {
-      seed = new Float32Array(ww * wh);
+      seed = new Float32Array(dw * dh);
       for (let i = 0; i < seed.length; i++) seed[i] = detection.saliency[i] > detection.threshold ? 1 : 0;
     }
+    if (seed.length !== ww * wh) seed = F.resampleField(seed, dw, dh, ww, wh);
     const detail = options.quality === 'low' ? 'fast' : (options.quality === 'ultra' ? 'ultra' : 'high');
     let seg = call('segmentation', AI3D.Segmentation.refineMask, workImg, ww, wh, seed,
-      { detail, keepParts: options.keepParts, minPartRatio: 0.003 });
+      { detail, keepParts: options.keepParts, minPartRatio: 0.003, seedW: dw, seedH: dh });
     if (seg.coverage < 0.004) {
       // احتياطي: استخدم بذرة الاكتشاف مباشرة
       const fb = new Float32Array(ww * wh);
@@ -150,7 +153,7 @@
         { saliency: detection.saliency, saliencyW: detection.saliencyW, saliencyH: detection.saliencyH, analysis, objectType },
         { geometry: geoMode, objectType, depthScale: depthRangeScale,
           px2worldX: aspect / ww, px2worldY: 1 / wh });
-      depthFrames.push({ depth: est.depth, mask: m, confidence: est.confidence, w: ww, h: wh, normals: est.normals, geometry: est.geometry });
+      depthFrames.push({ depth: est.depth, mask: m, confidence: est.confidence, w: ww, h: wh, normals: est.normals, geometry: est.geometry, detail: est.detail || null, method: est.method });
       await U.tick(0);
     }
     let depthRes = depthFrames[0];
@@ -174,7 +177,8 @@
     await U.tick(0);
     let mesh = call('reconstruction', AI3D.Geometry.reconstruct, {
       depth, mask, confidence, w: ww, h: wh, bbox: seg.bbox,
-      quality: options.quality, depthScale: depthRangeScale, objectType, aspect
+      quality: options.quality, depthScale: depthRangeScale, objectType, aspect,
+      geometry: geoMode
     });
     await emit('mesh', 72);
 
@@ -188,7 +192,8 @@
       try {
         atlas = AI3D.Texture.buildUVAtlas(mesh, texSize);
         maps = AI3D.Texture.bakeMaps(atlas, ref.img, {
-          light: analysis.light, material, cavity, cavityW: ww, cavityH: wh
+          light: analysis.light, material, cavity, cavityW: ww, cavityH: wh,
+          detailStrength: geoMode === 'fast' ? 0.3 : (geoMode === 'detailed' ? 0.9 : 0.6)
         });
         break;
       } catch (e) {
@@ -391,7 +396,7 @@
       depth: blended, mask, confidence: result.depth.confidence, w: ww, h: wh,
       bbox: result.segmentation.bbox, quality: opts.quality,
       depthScale: result.options.depthScale, objectType: result.objectType,
-      aspect: result.refW / result.refH
+      aspect: result.refW / result.refH, geometry: opts.geometry || 'detailed'
     });
     if (onProgress) onProgress('mesh', 85);
     await U.tick(10);

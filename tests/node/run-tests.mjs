@@ -150,6 +150,15 @@ async function main() {
   ok(res2.mesh.indices.length > 0, 'نموذج ثانٍ: ' + res2.stats.faces + ' وجه • جودة ' + res2.scores.overall + '%');
   console.log('    الخامة: ' + res2.material.materialAr + ' • الشفافية المقدّرة ' + res2.material.transparency);
 
+  section('12) وضع التفاصيل الدقيقة (Detailed) — دقة وسلامة');
+  const res3 = await AI3D.Pipeline.runPipeline(frames, { quality: 'high', texture: 'standard', geometry: 'detailed' });
+  ok(res3.segmentation.coverage > 0.1, 'العزل سليم عند دقة عمل مختلفة عن دقة الاكتشاف: ' + (res3.segmentation.coverage * 100).toFixed(1) + '%');
+  ok(res3.stats.watertight && res3.stats.nonManifoldEdges === 0, 'شبكة مفصّلة مغلقة ومانيفولد: ' + res3.stats.faces + ' وجه');
+  ok(res3.stats.faces > res.stats.faces, 'الوضع المفصّل ينتج تفاصيل أكثر (' + res3.stats.faces + ' > ' + res.stats.faces + ')');
+  ok(res3.mesh.meta.geometryMode === 'detailed', 'وضع الهندسة مسجّل في البيانات الوصفية');
+  ok(!!res3.depth.detail, 'طبقة التفاصيل الدقيقة للعمق مفعّلة');
+  console.log('    التقييم: هندسة ' + res3.scores.geometry + '% • سلامة ' + res3.scores.integrity + '% • الوقت ' + res3.procMs.toFixed(0) + 'ms');
+
   console.log('\n✅ كل الاختبارات نجحت — ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
 }
 

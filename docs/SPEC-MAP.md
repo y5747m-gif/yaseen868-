@@ -16,13 +16,13 @@
 | 10 | تقدير الأجزاء غير المرئية مع تمييز Observed vs Estimated | `geometry.js` (سمة `observed` لكل رأس) + زر `◑` في العارض |
 | 11 | تمثيل ثلاثي الأبعاد (Point Cloud / Implicit / Voxel) ثم Mesh | `geometry.js › buildPointCloud` و`reconstruct` (TSDF + Marching Tetrahedra) |
 | 12 | Mesh Reconstruction: إغلاق ثقوب، إزالة تشوهات، تحسين حواف | `geometry.js › repairMesh / fillSmallHoles / removeIsolated` |
-| 13 | مستويات جودة Low/Medium/High/Ultra | `geometry.js › QUALITY` (دقة شبكة TSDF) + تبسيط يدوي可选 |
+| 13 | مستويات جودة Low/Medium/High/Ultra | `geometry.js › QUALITY` (دقة شبكة TSDF) + `GEO_MODE` (fast/balanced/detailed) + تبسيط يدوي اختياري |
 | 14 | Texture من الصورة + UV Mapping | `texture.js › buildUVAtlas` (إسقاط محوري 6 اتجاهات + تعبئة) |
 | 15 | تحليل الخامات (معدن/بلاستيك/زجاج/خشب/قماش/جلد/مطاط/حجر/خرسانة/سيراميك) | `texture.js › estimateMaterial` + خرائط Roughness/Metalness |
 | 16 | تحليل الإضاءة وعدم تثبيتها داخل الـ Texture | `analysis.js › estimateLighting` + إزالة الإضاءة (de-light) في `bakeMaps` |
 | 17 | معالجة الانعكاسات وفصل لون السطح عن الإضاءة | `analysis › light.specular` + `estimateMaterial › scores.glass/metal` |
 | 18 | معالجة الشفافية (زجاج/بلاستيك/ماء) | `estimateMaterial › transparency/ior` + `KHR_materials_transmission` في GLB |
-| 19 | إعادة بناء التفاصيل (هندسة كبيرة + Normal/Texture للتفاصيل الدقيقة) | شبكة TSDF للهندسة + `bakeMaps` لخرائط Normal/AO/ORM |
+| 19 | إعادة بناء التفاصيل (هندسة كبيرة + Normal/Texture للتفاصيل الدقيقة) | `depth.js › buildDetailLayer` (طبقة HF تُضاف للعمق) + `geometry.js › GEO_MODE.detailed` (شبكة أدق بلا تنعيم + Unsharp) + `bakeMaps › detailStrength` (تفاصيل الصورة داخل خريطة النواميس) |
 | 20 | التعامل مع الأشخاص (رأس/جسم/أطراف/وضعية) | `detection` كشف الرأس (دوائر) + `objectFeatures` (skinRatio/تماثل) + سماكة مناسبة في `THICKNESS.human` |
 | 21 | السيارات والمركبات (هيكل/نوافذ/عجلات…) | `detectCircles` (عجلات) + `THICKNESS.vehicle` + تصنيف `vehicle` |
 | 22 | المنتجات (شكل/لون/شعار/كتابة/حواف) | خبز الألوان بدقة حتى 4096px + تصنيف `product` |

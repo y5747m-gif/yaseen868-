@@ -14,10 +14,16 @@
   /* عدد المضلعات يُضبط عبر دقة شبكة TSDF (أضمن طوبولوجيًا من التبسيط القاسي).
      التبسيط QEM يبقى أداة يدوية متاحة للمستخدم. */
   const QUALITY = {
-    low: { grid: 48, keep: 1.0, smooth: 2, cloud: 12000 },
-    medium: { grid: 68, keep: 1.0, smooth: 1, cloud: 30000 },
-    high: { grid: 92, keep: 1.0, smooth: 1, cloud: 70000 },
-    ultra: { grid: 116, keep: 1.0, smooth: 0, cloud: 140000 }
+    low: { grid: 56, keep: 1.0, smooth: 2, cloud: 12000 },
+    medium: { grid: 84, keep: 1.0, smooth: 1, cloud: 30000 },
+    high: { grid: 104, keep: 1.0, smooth: 0, cloud: 70000 },
+    ultra: { grid: 136, keep: 1.0, smooth: 0, cloud: 160000 }
+  };
+  /* أوضاع الهندسة: كم نحافظ على التفاصيل الدقيقة للسطح الأمامي */
+  const GEO_MODE = {
+    fast: { gridMul: 0.85, blur: 1, blendRaw: 0.35, sharpen: 0 },
+    balanced: { gridMul: 1.0, blur: 1, blendRaw: 0.6, sharpen: 0.35 },
+    detailed: { gridMul: 1.2, blur: 0, blendRaw: 1.0, sharpen: 0.7 }
   };
   /* سماكة نسبية لكل نوع جسم (نسبة إلى بُعد الصورة الظلية) */
   const THICKNESS = {
@@ -62,6 +68,7 @@
     const t0 = U.now();
     const { depth, mask, confidence, w, h, bbox, quality, objectType } = input;
     const Q = QUALITY[quality] || QUALITY.medium;
+    const G = GEO_MODE[input.geometry] || GEO_MODE.balanced;
     const aspect = input.aspect || (w / h);
     const depthScale = input.depthScale == null ? 0.55 : input.depthScale;
 
@@ -76,7 +83,7 @@
     const depthRange = depthScale * minDim * 0.9;
     const T = (THICKNESS[objectType] || THICKNESS.object) * minDim * 0.85;
 
-    const N = Q.grid;
+    const N = Math.round(Q.grid * G.gridMul);
     let s = Math.max(W, H, depthRange + T) / N;
     const Nx = Math.max(4, Math.ceil(W / s)), Ny = Math.max(4, Math.ceil(H / s));
     const D0 = depthRange + T + 6 * s;
@@ -89,8 +96,26 @@
     const depthG = F.resampleFieldBox(depth, w, h, Nx, Ny, mask, win);
     const maskG = F.resampleFieldBox(mask, w, h, Nx, Ny, null, win);
     const confG = confidence ? F.resampleFieldBox(confidence, w, h, Nx, Ny, mask, win) : null;
-    // تجانس خفيف إضافي على شبكة الأعمدة (يضمن اتصال الحجم)
-    const depthSmooth = F.boxBlur(Float32Array.from(depthG), Nx, Ny, 1, 1);
+    // في الوضع المفصّل: عيّنة ثنائية الخطية عند دقة الشبكة تحافظ على الحواف
+    // الدقيقة أفضل من متوسط المساحة (الذي يعمل كمرشّح تنعيم).
+    if (G.blendRaw >= 0.99) {
+      for (let j = 0; j < Ny; j++) for (let i = 0; i < Nx; i++) {
+        const u = (win.x0 + (i + 0.5) / Nx * (win.x1 - win.x0)) / (w - 1);
+        const v = (win.y0 + (j + 0.5) / Ny * (win.y1 - win.y0)) / (h - 1);
+        if (maskG[j * Nx + i] > 0.5) {
+          const dv = F.sampleFieldBilinear(depth, w, h, u, v);
+          // ادمج مع المتوسط عندما تكون العيّنة خارج القناع (حواف)
+          depthG[j * Nx + i] = F.sampleFieldBilinear(mask, w, h, u, v) > 0.5 ? dv : depthG[j * Nx + i];
+        }
+      }
+    }
+    // تجانس خفيف على شبكة الأعمدة (يضمن اتصال الحجم) — يُلغى في الوضع المفصّل
+    const depthSmooth = G.blur > 0 ? F.boxBlur(Float32Array.from(depthG), Nx, Ny, G.blur, 1) : Float32Array.from(depthG);
+    // تحسين التفاصيل (Unsharp): يعزّز الفروق المحلية التي تتحوّل إلى نتوءات/حزوز حقيقية
+    if (G.sharpen > 0) {
+      const wide = F.boxBlur(Float32Array.from(depthG), Nx, Ny, 2, 1);
+      for (let idx = 0; idx < depthG.length; idx++) if (maskG[idx] > 0.5) depthG[idx] = clamp01(depthG[idx] + (depthG[idx] - wide[idx]) * G.sharpen);
+    }
     const gridMask = new Float32Array(Nx * Ny);
     const frontC = new Float32Array(Nx * Ny);
     const backC = new Float32Array(Nx * Ny);
@@ -98,7 +123,7 @@
     for (let idx = 0; idx < Nx * Ny; idx++) {
       const m = maskG[idx];
       gridMask[idx] = m > 0.5 ? 1 : 0;
-      const d = depthG[idx] * (depthSmooth[idx] > 0 ? 0.35 : 0) + depthSmooth[idx] * 0.65;
+      const d = depthG[idx] * G.blendRaw + depthSmooth[idx] * (1 - G.blendRaw);
       confC[idx] = confG ? confG[idx] : 0.6;
       const zf = (d - 0.5) * depthRange;
       frontC[idx] = (zf - zMin) / s;
@@ -124,6 +149,7 @@
     const nVox = (Nx + 1) * (Ny + 1) * (Nz + 1);
     const sdf = new Float32Array(nVox);
     const TRUNC = 1.75;
+    const SDF_EPS = 0.02;
     const idx3 = (i, j, k) => (k * (Ny + 1) + j) * (Nx + 1) + i;
     for (let k = 0; k <= Nz; k++) {
       for (let j = 0; j <= Ny; j++) {
@@ -138,6 +164,9 @@
           else if (lat > 0) v = -depthTerm;
           else if (depthTerm > 0) v = -lat;
           else v = Math.hypot(lat, depthTerm);
+          // إبعاد القيم شبه الصفرية عن الصفر: يمنع الرؤوس المتطابقة والمثلثات
+          // الشريحية (تظهر أكثر كلما دقّت الشبكة) دون تغيير الطوبولوجيا
+          if (v > -SDF_EPS && v < SDF_EPS) v = v < 0 ? -SDF_EPS : SDF_EPS;
           sdf[idx3(i, j, k)] = v < -TRUNC ? -TRUNC : (v > TRUNC ? TRUNC : v);
         }
       }
@@ -165,10 +194,11 @@
       vu[slot] = u0 + i * du; vv[slot] = v0 + j * dv;
     }
     function getVertex(ia, ib, va, vb) {
-      const key = ia < ib ? ia * 4294967296 + ib : ib * 4294967296 + ia;
+      const t = va / (va - vb);
+      // مفتاح آمن ضمن 2^53 حتى عند الشبكات الكبيرة (nVox ≤ ~1e7 ⇒ nVox² < 9e15)
+      const key = ia < ib ? ia * nVox + ib : ib * nVox + ia;
       let id = edgeCache.get(key);
       if (id !== undefined) return id;
-      const t = va / (va - vb);
       decode(ia, 0); decode(ib, 1);
       id = pos.length / 3;
       pos.push(vx[0] + (vx[1] - vx[0]) * t, vy[0] + (vy[1] - vy[0]) * t, vz[0] + (vz[1] - vz[0]) * t);
@@ -288,7 +318,7 @@
       observed, confidence: conf,
       normals: null,
       meta: {
-        method: 'TSDF + Marching Tetrahedra', grid: [Nx, Ny, Nz], cellSize: s,
+        method: 'TSDF + Marching Tetrahedra', grid: [Nx, Ny, Nz], cellSize: s, geometryMode: input.geometry || 'balanced',
         depthRange, thickness: T, watertight: true, ms: Math.round(U.now() - t0)
       }
     };
@@ -301,7 +331,9 @@
       console.log('[dbg] ' + tag + ' F=' + st.faces + ' comps=' + st.components + ' vol=' + st.volume.toFixed(4) +
         ' bounds=' + st.bounds.size.map(v => v.toFixed(3)).join(',') + ' wt=' + st.watertight + ' nonman=' + st.nonManifoldEdges);
     };
-    if (Q.smooth > 0) smoothMesh(mesh, Q.smooth, 0.35);
+    // التنعيم يمحو التفاصيل: يُطبَّق فقط عند الجودات المنخفضة وخارج الوضع المفصّل
+    const smoothIters = input.geometry === 'detailed' ? 0 : Q.smooth;
+    if (smoothIters > 0) smoothMesh(mesh, smoothIters, 0.35);
     dbg('after-smooth');
     if (Q.keep < 1) mesh = decimateMesh(mesh, Q.keep);
     dbg('after-decimate');
@@ -824,6 +856,7 @@
   }
 
   AI3D.Geometry = {
+    GEO_MODE,
     reconstruct, buildPointCloud, computeNormals, meshStats, components,
     repairMesh, compactVertices, smoothMesh, decimateMesh, removeIsolated,
     transformMesh, centerMesh, fitScale, removeEstimated, deleteVertices,

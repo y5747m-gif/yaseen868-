@@ -3,7 +3,7 @@
 > **محرك ذكاء اصطناعي متكامل ثلاثي الأبعاد لتحويل الصور إلى مجسمات 3D تفاعلية أونلاين.**
 > يعمل بالكامل داخل المتصفح وبدون أي مفاتيح API خارجية، وجاهز للنشر الفوري على Vercel بنقرة واحدة.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fy5747m-gif%2Fmokta-ai-3D)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fy5747m-gif%2Fyaseen868-)
 
 ---
 
@@ -16,8 +16,8 @@
 1. **الربط مع Vercel**:
    - ادخل على [لوحة تحكم Vercel](https://vercel.com/dashboard).
    - اضغط على **Add New...** ثم **Project**.
-   - اختر مستودع **`y5747m-gif/mokta-ai-3D`** واضغط **Import**.
-   - أو افتح الرابط المباشر: [استيراد إلى Vercel مباشرة](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fy5747m-gif%2Fmokta-ai-3D)
+   - اختر مستودع **`y5747m-gif/yaseen868-`** واضغط **Import**.
+   - أو افتح الرابط المباشر: [استيراد إلى Vercel مباشرة](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fy5747m-gif%2Fyaseen868-)
 2. **النشر التلقائي (Zero-Config)**:
    - اضغط **Deploy** مباشرة دون الحاجة لتغيير أي إعدادات أو إضافة متغيرات بيئية.
    - خلال ثوانٍ معدودة ستحصل على رابط حي لموقعك ينتهي بـ `.vercel.app`.
@@ -37,6 +37,11 @@
   - تقنيات Trimap + Gaussian Mixture Models (GMM) + Local Color-Line Matting.
 - 📐 **تقدير العمق متعدد الإشارات (Multi-cue Depth)**:
   - دمج إشارات التظليل (Shape-from-Shading)، والتركيز (Defocus/Blur gradient)، وحجم الإسقاط.
+- 🔬 **وضع التفاصيل الدقيقة (Detailed — الافتراضي)**:
+  - طبقة تفاصيل عالية التردد (HF Detail Layer) تُستعاد من التظليل وتُضاف إلى خريطة العمق (حزوز، نقوش، حواف صغيرة) مع إخماد حواف الخامة حتى لا تتحوّل الطباعة إلى نتوءات.
+  - شبكة TSDF أدق (حتى 1.2× من دقة مستوى الجودة) مع عيّنة ثنائية الخطية للسطح الأمامي بدل متوسط المساحة، وبدون تنعيم يمحو التفاصيل.
+  - خريطة نواميس (Normal Map) تضمّ التفاصيل الدقيقة من الصورة نفسها فوق ناموس الوجه.
+  - حماية طوبولوجية للشبكات الدقيقة: شبكة مغلقة (Watertight) ومانيفولد حتى عند Ultra.
 - 🌐 **إعادة البناء الحجمي (Volumetric 3D)**:
   - تحويل إلى سحابة نقطية (Point Cloud) ثم دمج حجمي بحقل مسافات مقطوع (TSDF).
   - استخراج المضلعات بخوارزمية Marching Tetrahedra لضمان شبكة مجسمة محكمة ومغلقة من الأمام والخلف.
