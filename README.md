@@ -26,6 +26,37 @@
 
 ---
 
+## 🔍 الظهور في Google وGoogle Chrome (SEO + PWA)
+
+المستودع مهيأ ليتصدّر نتائج البحث ويُعرض بشكل احترافي في Chrome:
+
+| العنصر | الملف | الغرض |
+|---|---|---|
+| عنوان ووصف وكلمات مفتاحية (عربي + إنجليزي) | `index.html` `<head>` | نص النتيجة في Google |
+| Open Graph + Twitter Cards | `index.html` | معاينة الرابط في Chrome/واتساب/تيليجرام/X |
+| بيانات منظمة JSON-LD (`WebApplication`, `HowTo`, `FAQPage`, `Organization`) | `index.html` | النتائج الغنية (Rich Results) في Google |
+| `robots.txt` + `sitemap.xml` + `canonical` | الجذر | سماح الزحف وفهرسة الصفحة والصورة |
+| `manifest.webmanifest` + أيقونات | الجذر + `assets/` | زر «تثبيت التطبيق» في شريط عنوان Chrome، وأيقونة على سطح المكتب/الهاتف |
+| رؤوس الأمان والتخزين المؤقت | `vercel.json` | أداء وأمان أعلى = ترتيب أفضل |
+
+### ✅ خطوة يدوية إلزامية (مرة واحدة) — تسجيل الموقع في Google Search Console
+Google لا تفهرس الموقع تلقائيًا بسرعة إلا بعد إبلاغها:
+
+1. افتح [Google Search Console](https://search.google.com/search-console) وسجّل الدخول بحساب Google.
+2. اضغط **إضافة موقع** → اختر **بادئة عنوان URL** → أدخل `https://yaseen868.vercel.app/`.
+3. اختر طريقة التحقق **علامة HTML** وانسخ قيمة `content` من الوسم الذي يظهر لك، ثم ضعها في `index.html` داخل `<head>`:
+   ```html
+   <meta name="google-site-verification" content="ضع_الرمز_هنا">
+   ```
+   ادفع التعديل إلى `main` وانتظر نشر Vercel ثم اضغط **تحقّق**.
+4. من القائمة الجانبية: **ملفات Sitemap** → أضف `sitemap.xml` → **إرسال**.
+5. من أعلى الصفحة: **فحص عنوان URL** → أدخل رابط الموقع → **طلب الفهرسة**.
+6. (اختياري) كرّر الخطوات في [Bing Webmaster Tools](https://www.bing.com/webmasters) — يستورد إعدادات Search Console مباشرة، وهو ما يغذّي أيضًا بحث Edge وDuckDuckGo.
+
+بعد ذلك يظهر الموقع في Google عادةً خلال أيام قليلة، ويمكن اختبار النتائج الغنية من [Rich Results Test](https://search.google.com/test/rich-results?url=https%3A%2F%2Fyaseen868.vercel.app%2F).
+
+---
+
 ## 🌟 مميزات Mokta AI 3D
 
 - 🧠 **محرك مستقل بالكامل**: لا يعتمد على ChatGPT أو OpenAI أو خوادم GPU باهظة؛ خط المعالجة بالكامل مكتوب بخوارزميات رؤية حاسوبية وهندسة ثلاثية الأبعاد تعمل على متصفح العميل مباشرة.

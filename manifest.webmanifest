@@ -1,0 +1,27 @@
+{
+  "id": "/",
+  "name": "Mokta AI 3D — تحويل الصورة إلى نموذج 3D",
+  "short_name": "Mokta AI 3D",
+  "description": "حوّل أي صورة إلى مجسم ثلاثي الأبعاد (GLB, OBJ, STL, PLY) بالذكاء الاصطناعي داخل المتصفح — مجاني وخاص. Free AI image to 3D model converter.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0e14",
+  "theme_color": "#0b0e14",
+  "categories": ["graphics", "productivity", "utilities", "photo"],
+  "icons": [
+    { "src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "screenshots": [
+    { "src": "/assets/og-image.png", "sizes": "1200x630", "type": "image/png", "form_factor": "wide", "label": "Mokta AI 3D — Image to 3D Model" }
+  ],
+  "shortcuts": [
+    { "name": "رفع صورة جديدة", "short_name": "رفع", "url": "/?source=pwa#uploadSec", "icons": [{ "src": "/assets/icon-192.png", "sizes": "192x192" }] },
+    { "name": "مشاريعي", "short_name": "مشاريعي", "url": "/?source=pwa#projectsSec", "icons": [{ "src": "/assets/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

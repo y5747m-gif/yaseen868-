@@ -1,0 +1,7 @@
+# Mokta AI 3D — https://yaseen868.vercel.app/
+User-agent: *
+Allow: /
+Disallow: /tests/
+Disallow: /docs/
+
+Sitemap: https://yaseen868.vercel.app/sitemap.xml
