@@ -177,6 +177,8 @@
     const cavity = opts.cavity || null;
     const cavityW = opts.cavityW || sw, cavityH = opts.cavityH || sh;
 
+    const symHint = opts.symHint || null;
+    let symFaces = 0;
     const mat = opts.material || { roughness: 0.6, metallic: 0.1 };
     const baseRough = mat.roughness, baseMetal = mat.metallic;
 
@@ -232,14 +234,24 @@
       const d = (u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0);
       if (Math.abs(d) < 1e-9) continue;
       const invD = 1 / d;
-      const iu0 = IMGUV[a * 2], iv0 = IMGUV[a * 2 + 1];
-      const iu1 = IMGUV[b * 2], iv1 = IMGUV[b * 2 + 1];
-      const iu2 = IMGUV[c * 2], iv2 = IMGUV[c * 2 + 1];
-      const obs0 = OBS[a], obs1 = OBS[b], obs2 = OBS[c];
+      let iu0 = IMGUV[a * 2], iv0 = IMGUV[a * 2 + 1];
+      let iu1 = IMGUV[b * 2], iv1 = IMGUV[b * 2 + 1];
+      let iu2 = IMGUV[c * 2], iv2 = IMGUV[c * 2 + 1];
+      let obs0 = OBS[a], obs1 = OBS[b], obs2 = OBS[c];
+      // تعويض تماثلي (Neural): وجه مستنتَج بالكامل له تلميحات مرآوية ⇒ نستعير اللون من الجهة المرصودة
+      let symFace = false;
+      if (symHint && obs0 < 0.5 && obs1 < 0.5 && obs2 < 0.5 &&
+          symHint[a * 2] >= 0 && symHint[b * 2] >= 0 && symHint[c * 2] >= 0) {
+        iu0 = symHint[a * 2]; iv0 = symHint[a * 2 + 1];
+        iu1 = symHint[b * 2]; iv1 = symHint[b * 2 + 1];
+        iu2 = symHint[c * 2]; iv2 = symHint[c * 2 + 1];
+        obs0 = obs1 = obs2 = 0.7; symFace = true;
+      }
       // عمق الإسقاط (لمخزن العمق داخل المخطط)
       const projA = ax * A.n[0] + ay * A.n[1] + az * A.n[2];
       const projB = bx * A.n[0] + by * A.n[1] + bz * A.n[2];
       const projC = cx * A.n[0] + cy * A.n[1] + cz * A.n[2];
+      if (symFace) symFaces++;
 
       for (let y = minY; y <= maxY; y++) {
         for (let x = minX; x <= maxX; x++) {
@@ -308,6 +320,7 @@
     fillUnwritten(orm, written, size, [255, Math.round(baseRough * 255), Math.round(baseMetal * 255)]);
 
     return {
+      symFaces,
       albedo: toImage(albedo, size),
       normal: toImage(normal, size),
       orm: toImage(orm, size),

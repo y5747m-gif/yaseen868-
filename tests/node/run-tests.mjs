@@ -159,6 +159,30 @@ async function main() {
   ok(!!res3.depth.detail, 'طبقة التفاصيل الدقيقة للعمق مفعّلة');
   console.log('    التقييم: هندسة ' + res3.scores.geometry + '% • سلامة ' + res3.scores.integrity + '% • الوقت ' + res3.procMs.toFixed(0) + 'ms');
 
+  section('13) المساعد العصبي (Mokta Neural Assistant)');
+  ok(!!AI3D.Neural, 'تحميل neural.js');
+  ok(res3.neural && res3.neural.enabled, 'المساعد مفعّل داخل خط الإنتاج');
+  ok(res3.neural.scene && Array.isArray(res3.neural.scene.tags), 'فهم المشهد: ' + res3.neural.scene.tags.map(t => t.ar).join('، '));
+  ok(res3.neural.focus && res3.neural.focus.map.length === res3.workW * res3.workH, 'خريطة الانتباه بحجم العمل');
+  ok(res3.neural.sym && res3.neural.sym.confident, 'محور التماثل مكتشف بثقة ' + Math.round(res3.neural.sym.score * 100) + '%');
+  ok(res3.neural.texHints && res3.neural.texHints.hits > 0, 'تعويض الخامة التماثلي: ' + res3.neural.texHints.hits + ' رأس');
+  ok(Object.keys(res3.neural).filter(k => /rror/i.test(k)).length === 0, 'بدون أخطاء داخلية');
+  // جسم مقطوع عند الحافة اليسرى: يجب أن يُعوَّض الجزء المفقود ويعود الشكل قريبًا من الكرة الكاملة
+  const CW = 200, CH = 384, crop = AI3D.util.imageLike(CW, CH);
+  for (let y = 0; y < CH; y++) for (let x = 0; x < CW; x++) {
+    const o = (y * CW + x) * 4, sp = (y * 512 + x + 220) * 4;
+    crop.data[o] = img.data[sp]; crop.data[o + 1] = img.data[sp + 1]; crop.data[o + 2] = img.data[sp + 2]; crop.data[o + 3] = 255;
+  }
+  const rOff = await AI3D.Pipeline.runPipeline([{ img: crop, w: CW, h: CH, name: 'crop.png' }], { quality: 'medium', texture: 'standard', geometry: 'balanced', neural: false });
+  const rOn = await AI3D.Pipeline.runPipeline([{ img: crop, w: CW, h: CH, name: 'crop.png' }], { quality: 'medium', texture: 'standard', geometry: 'balanced' });
+  ok(rOn.neural.scene.tags.some(t => t.id === 'truncated'), 'اكتشاف أن الجسم مقطوع عند الحافة');
+  ok(rOn.neural.extended && rOn.neural.extended.offset.left > 0, 'توسيع اللوحة من الجهة المقطوعة');
+  ok(rOn.neural.completion && rOn.neural.completion.addedCount > 1000, 'تعويض ' + rOn.neural.completion.addedCount + ' بكسل مفقود');
+  const dOff = rOff.info.dimensions, dOn = rOn.info.dimensions;
+  ok(dOn.x > dOff.x * 1.25 && Math.abs(dOn.x / dOn.y - 1) < 0.15, 'الشكل المُعوَّض أقرب للكرة الكاملة: عرض ' + dOff.x + ' → ' + dOn.x + ' (الارتفاع ' + dOn.y + ')');
+  ok(rOn.stats.watertight, 'الشبكة المُعوَّضة مغلقة');
+  console.log('    ' + rOn.neural.report.join('\n    '));
+
   console.log('\n✅ كل الاختبارات نجحت — ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
 }
 
