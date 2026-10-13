@@ -1,0 +1,17 @@
+{
+  "name": "يومي | YAWMI — المخطط الذكي للطالب",
+  "short_name": "يومي",
+  "description": "مخطط دراسي عربي للطالب الأزهري: جدول، مذاكرة، مهام، ومنبهات. يعمل بدون إنترنت.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
